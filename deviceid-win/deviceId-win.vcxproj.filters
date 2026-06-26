@@ -18,5 +18,55 @@
     <ClCompile Include="main.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\DeviceInfo.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\DeviceInfoC.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\internal\DeviceIdManager.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\internal\NetworkCollector.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\internal\SmbiosCollector.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\internal\SystemCollectors.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\internal\Utf8.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\DeviceInfoSDK\DeviceInfo.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\DeviceInfoSDK\DeviceInfoC.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\internal\DeviceIdManager.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\internal\Interfaces.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\internal\NetworkCollector.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\internal\SmbiosCollector.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\internal\SystemCollectors.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\internal\Utf8.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\internal\WinHandle.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
