@@ -15,6 +15,7 @@ namespace DeviceInfoSDK {
 namespace {
 
 constexpr std::uint32_t kMaxLockTimeoutMs = 30000;
+constexpr const char* kDefaultNamespace = "com.bigsinger.deviceid";
 
 void RememberFirstError(std::uint32_t candidate, DeviceInfoResult* result) noexcept {
     if (result != nullptr && result->native_error == 0 && candidate != 0) {
@@ -49,12 +50,21 @@ void AssignStringField(
     }
 }
 
+DeviceInfoOptions NormalizeOptions(DeviceInfoOptions options) {
+    if (options.id_namespace.empty()) {
+        options.id_namespace = kDefaultNamespace;
+    }
+    if (options.app_version.empty()) {
+        options.app_version = GetSdkVersion();
+    }
+    return options;
+}
+
 bool ValidateOptionsForGet(const DeviceInfoOptions& options) noexcept {
     if (!internal::IsValidNamespace(options.id_namespace)) {
         return false;
     }
-    if (options.app_version.empty() ||
-        options.app_version.size() > 63 ||
+    if (options.app_version.size() > 63 ||
         internal::HasEmbeddedNul(options.app_version) ||
         !internal::IsValidUtf8(options.app_version)) {
         return false;
@@ -140,23 +150,24 @@ ResultCode AggregateCode(const DeviceInfoResult& result, ResultCode device_id_co
 DeviceInfoResult GetDeviceInfo(const DeviceInfoOptions& options) noexcept {
     DeviceInfoResult result;
     try {
-        if (!ValidateOptionsForGet(options)) {
+        DeviceInfoOptions normalized_options = NormalizeOptions(options);
+        if (!ValidateOptionsForGet(normalized_options)) {
             result.code = ResultCode::kInvalidArgument;
             result.native_error = 87;
             return result;
         }
 
         result.info.platform = "windows";
-        result.info.app_version = options.app_version;
-        result.info.app_channel = options.app_channel;
+        result.info.app_version = normalized_options.app_version;
+        result.info.app_channel = normalized_options.app_channel;
         result.info.os = "Windows";
         result.info.cpuid.clear();
-        result.present_mask |= kFieldPlatform | kFieldAppVersion | kFieldOs | kFieldCpuid;
+        result.present_mask |= kFieldPlatform | kFieldAppVersion | kFieldOs;
         if (!result.info.app_channel.empty()) {
             result.present_mask |= kFieldAppChannel;
         }
 
-        internal::DeviceIdOutcome id = internal::GetOrCreateDeviceId(options);
+        internal::DeviceIdOutcome id = internal::GetOrCreateDeviceId(normalized_options);
         result.info.device_id = id.id;
         if (!id.id.empty()) {
             result.present_mask |= kFieldDeviceId;
@@ -173,7 +184,7 @@ DeviceInfoResult GetDeviceInfo(const DeviceInfoOptions& options) noexcept {
             kFieldOsVersion,
             &result);
 
-        if ((options.collection_flags & kCollectDisplay) != 0) {
+        if ((normalized_options.collection_flags & kCollectDisplay) != 0) {
             internal::DisplayResult display = internal::CollectPrimaryDisplayMode();
             result.diagnostic_flags |= display.diagnostic_flags;
             if (display.ok) {
@@ -190,7 +201,7 @@ DeviceInfoResult GetDeviceInfo(const DeviceInfoOptions& options) noexcept {
             }
         }
 
-        if ((options.collection_flags & kCollectHardware) != 0) {
+        if ((normalized_options.collection_flags & kCollectHardware) != 0) {
             internal::SmbiosResult smbios = internal::CollectSmbiosSystemInfo();
             if (smbios.ok) {
                 AssignStringField(&result.info.brand, smbios.brand, 127, kFieldBrand, &result);
@@ -223,8 +234,17 @@ DeviceInfoResult GetDeviceInfo(const DeviceInfoOptions& options) noexcept {
                 &result);
         }
 
-        const bool collect_network_type = (options.collection_flags & kCollectNetworkType) != 0;
-        const bool collect_mac = (options.collection_flags & kCollectMac) != 0;
+        if ((normalized_options.collection_flags & kCollectCpuid) != 0) {
+            ApplyStringResult(
+                internal::CollectCpuid(),
+                &result.info.cpuid,
+                127,
+                kFieldCpuid,
+                &result);
+        }
+
+        const bool collect_network_type = (normalized_options.collection_flags & kCollectNetworkType) != 0;
+        const bool collect_mac = (normalized_options.collection_flags & kCollectMac) != 0;
         if (collect_network_type || collect_mac) {
             internal::NetworkResult network = internal::CollectNetwork(collect_mac);
             result.diagnostic_flags |= network.diagnostic_flags;
@@ -246,7 +266,7 @@ DeviceInfoResult GetDeviceInfo(const DeviceInfoOptions& options) noexcept {
             }
         }
 
-        if ((options.collection_flags & kCollectLocale) != 0) {
+        if ((normalized_options.collection_flags & kCollectLocale) != 0) {
             ApplyStringResult(
                 internal::CollectLocale(),
                 &result.info.lang,
@@ -255,7 +275,7 @@ DeviceInfoResult GetDeviceInfo(const DeviceInfoOptions& options) noexcept {
                 &result);
         }
 
-        if ((options.collection_flags & kCollectHostname) != 0) {
+        if ((normalized_options.collection_flags & kCollectHostname) != 0) {
             ApplyStringResult(
                 internal::CollectHostname(),
                 &result.info.hostname,
@@ -264,7 +284,7 @@ DeviceInfoResult GetDeviceInfo(const DeviceInfoOptions& options) noexcept {
                 &result);
         }
 
-        if ((options.collection_flags & kCollectUsername) != 0) {
+        if ((normalized_options.collection_flags & kCollectUsername) != 0) {
             ApplyStringResult(
                 internal::CollectUsername(),
                 &result.info.os_username,
@@ -297,13 +317,14 @@ ResultCode DeletePersistedDeviceId(
         if (native_error != nullptr) {
             *native_error = 0;
         }
-        if (!ValidateOptionsForDelete(options)) {
+        DeviceInfoOptions normalized_options = NormalizeOptions(options);
+        if (!ValidateOptionsForDelete(normalized_options)) {
             if (native_error != nullptr) {
                 *native_error = 87;
             }
             return ResultCode::kInvalidArgument;
         }
-        return internal::DeletePersistedDeviceIdInternal(options, native_error);
+        return internal::DeletePersistedDeviceIdInternal(normalized_options, native_error);
     } catch (...) {
         if (native_error != nullptr) {
             *native_error = 574;

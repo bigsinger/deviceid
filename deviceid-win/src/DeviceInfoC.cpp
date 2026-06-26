@@ -36,7 +36,6 @@ void CopyString(char* target, std::size_t capacity, const std::string& value) no
 
 bool ConvertOptions(
     const DISDK_OptionsV2* source,
-    bool require_app_version,
     DeviceInfoSDK::DeviceInfoOptions* options) noexcept {
     if (source == nullptr || options == nullptr ||
         source->struct_size < sizeof(DISDK_OptionsV2) ||
@@ -53,7 +52,7 @@ bool ConvertOptions(
     options->collection_flags = source->collection_flags;
     options->lock_timeout_ms = source->lock_timeout_ms;
     options->enable_legacy_migration = (source->option_flags & kOptionFlagLegacyMigration) != 0;
-    return !require_app_version || !options->app_version.empty();
+    return true;
 }
 
 void FillFullOutput(const DeviceInfoSDK::DeviceInfoResult& result, DISDK_DeviceInfoV2* output) noexcept {
@@ -119,7 +118,7 @@ DISDK_API int32_t DISDK_CALL DISDK_GetDeviceInfoV2(
     const DISDK_OptionsV2* options,
     DISDK_DeviceInfoV2* output) {
     DeviceInfoSDK::DeviceInfoOptions cpp_options;
-    if (!ConvertOptions(options, true, &cpp_options)) {
+    if (!ConvertOptions(options, &cpp_options)) {
         if (output != nullptr &&
             output->struct_size >= offsetof(DISDK_DeviceInfoV2, platform) &&
             output->abi_version == DISDK_ABI_VERSION) {
@@ -135,7 +134,7 @@ DISDK_API int32_t DISDK_CALL DISDK_DeletePersistedDeviceIdV2(
     const DISDK_OptionsV2* options,
     uint32_t* native_error) {
     DeviceInfoSDK::DeviceInfoOptions cpp_options;
-    if (!ConvertOptions(options, false, &cpp_options)) {
+    if (!ConvertOptions(options, &cpp_options)) {
         if (native_error != nullptr) {
             *native_error = 87;
         }

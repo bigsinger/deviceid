@@ -1,2 +1,12 @@
 .vs
 *.user
+*.obj
+*.iobj
+*.idb
+*.pdb
+*.log
+*.tlog
+*.ilk
+*.recipe
+*.exe
+*\Debug\*

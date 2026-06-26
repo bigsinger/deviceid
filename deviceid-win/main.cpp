@@ -18,12 +18,7 @@ namespace {
 struct CliOptions {
     DeviceInfoSDK::DeviceInfoOptions sdk;
     std::string format = "text";
-    bool include_sensitive = false;
-    bool no_network = false;
-    bool delete_device_id = false;
-    bool show_status = false;
     bool self_test = false;
-    int repeat = 1;
 };
 
 std::string WideArgToUtf8(const wchar_t* value) {
@@ -38,79 +33,30 @@ std::string WideArgToUtf8(const wchar_t* value) {
 
 void PrintUsage() {
     std::cerr
-        << "deviceinfo_cli --namespace <id> --app-version <ver> [options]\n"
-        << "  --format text|json        Output format, default text\n"
-        << "  -e json                   Alias for --format json\n"
-        << "  --app-channel <channel>   Optional app channel\n"
-        << "  --include-sensitive       Enable mac, hostname and os_username\n"
-        << "  --no-network              Disable network_type and mac collection\n"
-        << "  --repeat <N>              Collect N times\n"
-        << "  --delete-device-id        Delete persisted ID and exit\n"
-        << "  --show-status             Show masks in text mode\n"
-        << "  --self-test               Run local smoke tests\n";
-}
-
-bool ParseInt(const std::string& text, int* value) {
-    if (value == nullptr || text.empty()) {
-        return false;
-    }
-    char* end = nullptr;
-    const long parsed = std::strtol(text.c_str(), &end, 10);
-    if (end == nullptr || *end != '\0' || parsed < 1 || parsed > 10000) {
-        return false;
-    }
-    *value = static_cast<int>(parsed);
-    return true;
+        << "deviceinfo_cli\n"
+        << "deviceinfo_cli -e json\n";
 }
 
 bool ParseArgs(int argc, wchar_t* argv[], CliOptions* options) {
     if (options == nullptr) {
         return false;
     }
-    options->sdk.collection_flags = DeviceInfoSDK::kCollectDefault;
+    options->sdk.collection_flags =
+        DeviceInfoSDK::kCollectDefault |
+        DeviceInfoSDK::kCollectMac |
+        DeviceInfoSDK::kCollectCpuid |
+        DeviceInfoSDK::kCollectHostname |
+        DeviceInfoSDK::kCollectUsername;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = WideArgToUtf8(argv[i]);
-        const auto need_value = [&](std::string* out) -> bool {
-            if (i + 1 >= argc || out == nullptr) {
+        if (arg == "-e") {
+            if (i + 1 >= argc) {
                 return false;
             }
-            *out = WideArgToUtf8(argv[++i]);
-            return true;
-        };
-
-        if (arg == "--namespace") {
-            if (!need_value(&options->sdk.id_namespace)) {
+            options->format = WideArgToUtf8(argv[++i]);
+            if (options->format != "json") {
                 return false;
             }
-        } else if (arg == "--app-version") {
-            if (!need_value(&options->sdk.app_version)) {
-                return false;
-            }
-        } else if (arg == "--app-channel") {
-            if (!need_value(&options->sdk.app_channel)) {
-                return false;
-            }
-        } else if (arg == "--format") {
-            if (!need_value(&options->format)) {
-                return false;
-            }
-        } else if (arg == "-e") {
-            if (!need_value(&options->format)) {
-                return false;
-            }
-        } else if (arg == "--include-sensitive") {
-            options->include_sensitive = true;
-        } else if (arg == "--no-network") {
-            options->no_network = true;
-        } else if (arg == "--repeat") {
-            std::string repeat_text;
-            if (!need_value(&repeat_text) || !ParseInt(repeat_text, &options->repeat)) {
-                return false;
-            }
-        } else if (arg == "--delete-device-id") {
-            options->delete_device_id = true;
-        } else if (arg == "--show-status") {
-            options->show_status = true;
         } else if (arg == "--self-test") {
             options->self_test = true;
         } else if (arg == "--help" || arg == "-h") {
@@ -120,18 +66,7 @@ bool ParseArgs(int argc, wchar_t* argv[], CliOptions* options) {
             return false;
         }
     }
-
-    if (options->include_sensitive) {
-        options->sdk.collection_flags |=
-            DeviceInfoSDK::kCollectMac |
-            DeviceInfoSDK::kCollectHostname |
-            DeviceInfoSDK::kCollectUsername;
-    }
-    if (options->no_network) {
-        options->sdk.collection_flags &= ~DeviceInfoSDK::kCollectNetworkType;
-        options->sdk.collection_flags &= ~DeviceInfoSDK::kCollectMac;
-    }
-    return options->format == "text" || options->format == "json";
+    return true;
 }
 
 std::string JsonEscape(const std::string& value) {
@@ -209,7 +144,7 @@ void PrintJsonFields(const DeviceInfoSDK::DeviceInfoResult& result, std::ostream
     out << "}}";
 }
 
-void PrintText(const DeviceInfoSDK::DeviceInfoResult& result, bool show_status) {
+void PrintText(const DeviceInfoSDK::DeviceInfoResult& result) {
     const auto& info = result.info;
     std::cout
         << "platform=" << info.platform << "\n"
@@ -231,23 +166,19 @@ void PrintText(const DeviceInfoSDK::DeviceInfoResult& result, bool show_status) 
         << "network_type=" << info.network_type << "\n"
         << "lang=" << info.lang << "\n"
         << "hostname=" << info.hostname << "\n"
-        << "os_username=" << info.os_username << "\n";
-    if (show_status) {
-        std::cout
-            << "result_code=" << static_cast<std::uint32_t>(result.code) << "\n"
-            << "present_mask=" << Hex64(result.present_mask) << "\n"
-            << "error_mask=" << Hex64(result.error_mask) << "\n"
-            << "diagnostic_flags=" << Hex64(result.diagnostic_flags) << "\n"
-            << "native_error=" << result.native_error << "\n";
-    }
+        << "os_username=" << info.os_username << "\n"
+        << "result_code=" << static_cast<std::uint32_t>(result.code) << "\n"
+        << "present_mask=" << Hex64(result.present_mask) << "\n"
+        << "error_mask=" << Hex64(result.error_mask) << "\n"
+        << "diagnostic_flags=" << Hex64(result.diagnostic_flags) << "\n"
+        << "native_error=" << result.native_error << "\n";
 }
 
 int ExitCode(DeviceInfoSDK::ResultCode code) noexcept {
     switch (code) {
     case DeviceInfoSDK::ResultCode::kOk:
-        return 0;
     case DeviceInfoSDK::ResultCode::kPartial:
-        return 1;
+        return 0;
     case DeviceInfoSDK::ResultCode::kInvalidArgument:
         return 2;
     case DeviceInfoSDK::ResultCode::kDeviceIdVolatile:
@@ -257,27 +188,6 @@ int ExitCode(DeviceInfoSDK::ResultCode code) noexcept {
     default:
         return 4;
     }
-}
-
-DeviceInfoSDK::ResultCode WorseCode(DeviceInfoSDK::ResultCode a, DeviceInfoSDK::ResultCode b) noexcept {
-    const auto rank = [](DeviceInfoSDK::ResultCode code) {
-        switch (code) {
-        case DeviceInfoSDK::ResultCode::kInvalidArgument:
-            return 5;
-        case DeviceInfoSDK::ResultCode::kDeviceIdVolatile:
-            return 4;
-        case DeviceInfoSDK::ResultCode::kBusy:
-            return 3;
-        case DeviceInfoSDK::ResultCode::kInternalError:
-            return 2;
-        case DeviceInfoSDK::ResultCode::kPartial:
-            return 1;
-        case DeviceInfoSDK::ResultCode::kOk:
-        default:
-            return 0;
-        }
-    };
-    return rank(a) >= rank(b) ? a : b;
 }
 
 bool RunSelfTest() {
@@ -292,8 +202,14 @@ bool RunSelfTest() {
 
     DeviceInfoSDK::DeviceInfoOptions invalid;
     invalid.id_namespace = "com.example.product";
-    invalid.app_version = "1.0.0";
     check(DeviceInfoSDK::GetDeviceInfo(invalid).code == DeviceInfoSDK::ResultCode::kInvalidArgument, "reject_placeholder_namespace");
+
+    DeviceInfoSDK::DeviceInfoOptions defaulted;
+    DeviceInfoSDK::DeviceInfoResult defaulted_result = DeviceInfoSDK::GetDeviceInfo(defaulted);
+    DeviceInfoSDK::DeviceInfoResult defaulted_again = DeviceInfoSDK::GetDeviceInfo(defaulted);
+    check(!defaulted_result.info.device_id.empty(), "default_namespace_and_app_version");
+    check(defaulted_result.info.device_id == defaulted_again.info.device_id, "default_device_id_stable");
+    check(defaulted_result.info.app_version == DeviceInfoSDK::GetSdkVersion(), "default_app_version");
 
     DeviceInfoSDK::DeviceInfoOptions options;
     options.id_namespace = "com.bigsinger.deviceid.selftest";
@@ -306,16 +222,21 @@ bool RunSelfTest() {
     std::string normalized;
     check(DeviceInfoSDK::internal::IsValidUuidV4Text(first.info.device_id, &normalized), "uuid_v4_format");
     check(first.info.device_id == second.info.device_id, "device_id_stable");
-    check(first.info.mac.empty() && first.info.hostname.empty() && first.info.os_username.empty(), "sensitive_default_empty");
-    check((first.present_mask & (DeviceInfoSDK::kFieldMac | DeviceInfoSDK::kFieldHostname | DeviceInfoSDK::kFieldOsUsername)) == 0, "sensitive_default_not_present");
+    check(first.info.mac.empty() && first.info.cpuid.empty() && first.info.hostname.empty() && first.info.os_username.empty(), "sensitive_default_empty");
+    check((first.present_mask & (DeviceInfoSDK::kFieldMac | DeviceInfoSDK::kFieldCpuid | DeviceInfoSDK::kFieldHostname | DeviceInfoSDK::kFieldOsUsername)) == 0, "sensitive_default_not_present");
+
+    DeviceInfoSDK::DeviceInfoOptions sensitive = options;
+    sensitive.collection_flags |= DeviceInfoSDK::kCollectCpuid | DeviceInfoSDK::kCollectHostname | DeviceInfoSDK::kCollectUsername;
+    DeviceInfoSDK::DeviceInfoResult sensitive_result = DeviceInfoSDK::GetDeviceInfo(sensitive);
+    check(!sensitive_result.info.cpuid.empty(), "cpuid_collects");
+    check(!sensitive_result.info.hostname.empty(), "hostname_collects");
+    check(!sensitive_result.info.os_username.empty(), "username_collects");
 
     DISDK_OptionsV2 c_options{};
     c_options.struct_size = sizeof(c_options);
     c_options.abi_version = DISDK_ABI_VERSION;
     c_options.collection_flags = DISDK_COLLECT_DEFAULT;
     c_options.lock_timeout_ms = 2000;
-    strcpy_s(c_options.id_namespace, "com.bigsinger.deviceid.selftest");
-    strcpy_s(c_options.app_version, "2.0.0");
     DISDK_DeviceInfoV2 c_output{};
     c_output.struct_size = sizeof(c_output);
     c_output.abi_version = DISDK_ABI_VERSION;
@@ -339,62 +260,14 @@ int wmain(int argc, wchar_t* argv[]) {
         return RunSelfTest() ? 0 : 4;
     }
 
-    if (options.sdk.id_namespace.empty()) {
-        PrintUsage();
-        return 2;
-    }
-
-    if (options.delete_device_id) {
-        std::uint32_t native_error = 0;
-        const DeviceInfoSDK::ResultCode code = DeviceInfoSDK::DeletePersistedDeviceId(options.sdk, &native_error);
-        if (options.format == "json") {
-            std::cout
-                << "{\"result_code\":" << static_cast<std::uint32_t>(code)
-                << ",\"native_error\":" << native_error << "}\n";
-        } else {
-            std::cout
-                << "result_code=" << static_cast<std::uint32_t>(code) << "\n"
-                << "native_error=" << native_error << "\n";
-        }
-        return ExitCode(code);
-    }
-
-    if (options.sdk.app_version.empty()) {
-        PrintUsage();
-        return 2;
-    }
-
-    std::vector<DeviceInfoSDK::DeviceInfoResult> results;
-    results.reserve(static_cast<std::size_t>(options.repeat));
-    DeviceInfoSDK::ResultCode aggregate = DeviceInfoSDK::ResultCode::kOk;
-    for (int i = 0; i < options.repeat; ++i) {
-        DeviceInfoSDK::DeviceInfoResult result = DeviceInfoSDK::GetDeviceInfo(options.sdk);
-        aggregate = WorseCode(aggregate, result.code);
-        results.push_back(result);
-    }
+    DeviceInfoSDK::DeviceInfoResult result = DeviceInfoSDK::GetDeviceInfo(options.sdk);
 
     if (options.format == "json") {
-        if (results.size() == 1) {
-            PrintJsonFields(results.front(), std::cout);
-            std::cout << "\n";
-        } else {
-            std::cout << "{\"runs\":[";
-            for (std::size_t i = 0; i < results.size(); ++i) {
-                if (i != 0) {
-                    std::cout << ",";
-                }
-                PrintJsonFields(results[i], std::cout);
-            }
-            std::cout << "]}\n";
-        }
+        PrintJsonFields(result, std::cout);
+        std::cout << "\n";
     } else {
-        for (std::size_t i = 0; i < results.size(); ++i) {
-            if (results.size() > 1) {
-                std::cout << "# run=" << (i + 1) << "\n";
-            }
-            PrintText(results[i], options.show_status);
-        }
+        PrintText(result);
     }
 
-    return ExitCode(aggregate);
+    return ExitCode(result.code);
 }

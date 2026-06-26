@@ -14,7 +14,8 @@ enum CollectionFlags : std::uint64_t {
     kCollectLocale = 1ull << 3,
     kCollectMac = 1ull << 16,
     kCollectHostname = 1ull << 17,
-    kCollectUsername = 1ull << 18
+    kCollectUsername = 1ull << 18,
+    kCollectCpuid = 1ull << 19
 };
 
 constexpr std::uint64_t kCollectDefault =
@@ -66,8 +67,8 @@ enum DiagnosticFlags : std::uint64_t {
 };
 
 struct DeviceInfoOptions {
-    std::string id_namespace;
-    std::string app_version;
+    std::string id_namespace;       // Optional; empty uses the SDK default namespace.
+    std::string app_version;        // Optional; empty uses GetSdkVersion().
     std::string app_channel;
     std::uint64_t collection_flags = kCollectDefault;
     std::uint32_t lock_timeout_ms = 2000;

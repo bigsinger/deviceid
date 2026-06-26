@@ -98,6 +98,11 @@ struct StoreRead {
     DWORD native_error = 0;
 };
 
+struct RegistryLocation {
+    HKEY root;
+    bool fallback;
+};
+
 struct WriteResult {
     bool ok = false;
     DWORD native_error = 0;
@@ -147,6 +152,11 @@ std::wstring RegistryPathForNamespace(const std::string& id_namespace) {
     return std::wstring(kRegistryPathPrefix) + AsciiToWide(id_namespace);
 }
 
+RegistryLocation RegistryLocations[2] = {
+    {HKEY_CURRENT_USER_LOCAL_SETTINGS, false},
+    {HKEY_CURRENT_USER, true},
+};
+
 bool EnsureDirectory(const std::wstring& path, DWORD* native_error) noexcept {
     if (CreateDirectoryW(path.c_str(), nullptr) != FALSE) {
         return true;
@@ -192,12 +202,12 @@ bool EnsureNamespaceDirectory(const StorePaths& paths, DWORD* native_error) noex
     return ok;
 }
 
-StoreRead ReadRegistryValue(const std::string& id_namespace) noexcept {
+StoreRead ReadRegistryValueAt(HKEY root, const std::string& id_namespace) noexcept {
     StoreRead result;
     UniqueRegKey key;
     const std::wstring key_path = RegistryPathForNamespace(id_namespace);
     LSTATUS status = RegOpenKeyExW(
-        HKEY_CURRENT_USER_LOCAL_SETTINGS,
+        root,
         key_path.c_str(),
         0,
         KEY_QUERY_VALUE,
@@ -266,6 +276,20 @@ StoreRead ReadRegistryValue(const std::string& id_namespace) noexcept {
     return result;
 }
 
+StoreRead ReadRegistryValue(const std::string& id_namespace) noexcept {
+    StoreRead first_error;
+    for (const RegistryLocation& location : RegistryLocations) {
+        StoreRead result = ReadRegistryValueAt(location.root, id_namespace);
+        if (result.valid) {
+            return result;
+        }
+        if (!result.missing && first_error.missing) {
+            first_error = result;
+        }
+    }
+    return first_error.missing ? StoreRead{} : first_error;
+}
+
 StoreRead ReadFileValue(const std::string& id_namespace) noexcept {
     StoreRead result;
     StorePaths paths;
@@ -324,12 +348,12 @@ StoreRead ReadFileValue(const std::string& id_namespace) noexcept {
     return result;
 }
 
-WriteResult WriteRegistryValue(const std::string& id_namespace, const std::string& uuid) noexcept {
+WriteResult WriteRegistryValueAt(HKEY root, const std::string& id_namespace, const std::string& uuid) noexcept {
     WriteResult result;
     UniqueRegKey key;
     const std::wstring key_path = RegistryPathForNamespace(id_namespace);
     LSTATUS status = RegCreateKeyExW(
-        HKEY_CURRENT_USER_LOCAL_SETTINGS,
+        root,
         key_path.c_str(),
         0,
         nullptr,
@@ -356,6 +380,22 @@ WriteResult WriteRegistryValue(const std::string& id_namespace, const std::strin
     }
     result.ok = true;
     return result;
+}
+
+WriteResult WriteRegistryValue(const std::string& id_namespace, const std::string& uuid) noexcept {
+    WriteResult first_failure;
+    bool saw_failure = false;
+    for (const RegistryLocation& location : RegistryLocations) {
+        WriteResult result = WriteRegistryValueAt(location.root, id_namespace, uuid);
+        if (result.ok) {
+            return result;
+        }
+        if (!saw_failure) {
+            first_failure = result;
+            saw_failure = true;
+        }
+    }
+    return first_failure;
 }
 
 WriteResult WriteFileValue(const std::string& id_namespace, const std::string& uuid) noexcept {
@@ -1035,26 +1075,28 @@ ResultCode DeletePersistedDeviceIdInternal(
 
         ResultCode code = ResultCode::kOk;
         const std::wstring key_path = RegistryPathForNamespace(options.id_namespace);
-        UniqueRegKey key;
-        LSTATUS status = RegOpenKeyExW(
-            HKEY_CURRENT_USER_LOCAL_SETTINGS,
-            key_path.c_str(),
-            0,
-            KEY_SET_VALUE,
-            key.put());
-        if (status == ERROR_SUCCESS) {
-            status = RegDeleteValueW(key.get(), kRegistryValueName);
-            if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND) {
+        for (const RegistryLocation& location : RegistryLocations) {
+            UniqueRegKey key;
+            LSTATUS status = RegOpenKeyExW(
+                location.root,
+                key_path.c_str(),
+                0,
+                KEY_SET_VALUE,
+                key.put());
+            if (status == ERROR_SUCCESS) {
+                status = RegDeleteValueW(key.get(), kRegistryValueName);
+                if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND) {
+                    if (native_error != nullptr && *native_error == 0) {
+                        *native_error = static_cast<std::uint32_t>(status);
+                    }
+                    code = ResultCode::kPartial;
+                }
+            } else if (status != ERROR_FILE_NOT_FOUND && status != ERROR_PATH_NOT_FOUND) {
                 if (native_error != nullptr && *native_error == 0) {
                     *native_error = static_cast<std::uint32_t>(status);
                 }
                 code = ResultCode::kPartial;
             }
-        } else if (status != ERROR_FILE_NOT_FOUND && status != ERROR_PATH_NOT_FOUND) {
-            if (native_error != nullptr && *native_error == 0) {
-                *native_error = static_cast<std::uint32_t>(status);
-            }
-            code = ResultCode::kPartial;
         }
 
         StorePaths paths;

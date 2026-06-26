@@ -14,8 +14,14 @@
 #include <winnls.h>
 
 #include <cstdio>
+#include <cwchar>
+#include <cstring>
 #include <string>
 #include <vector>
+
+#if defined(_M_IX86) || defined(_M_X64)
+#include <intrin.h>
+#endif
 
 namespace DeviceInfoSDK {
 namespace internal {
@@ -26,6 +32,14 @@ void SetError(StringResult* result, std::uint32_t error) noexcept {
         result->native_error = error;
         result->ok = false;
     }
+}
+
+std::uint64_t RoundUpGiB(unsigned long long bytes) noexcept {
+    constexpr unsigned long long gib = 1024ull * 1024ull * 1024ull;
+    if (bytes == 0) {
+        return 0;
+    }
+    return (bytes + gib - 1) / gib;
 }
 
 } // namespace
@@ -165,6 +179,53 @@ UInt32Result CollectCpuCores() noexcept {
     return result;
 }
 
+StringResult CollectCpuid() noexcept {
+    StringResult result;
+#if defined(_M_IX86) || defined(_M_X64)
+    int regs[4]{};
+    __cpuid(regs, 0);
+    const int max_leaf = regs[0];
+    if (max_leaf < 1) {
+        SetError(&result, ERROR_NOT_SUPPORTED);
+        return result;
+    }
+
+    char vendor[13]{};
+    std::memcpy(vendor + 0, &regs[1], sizeof(int));
+    std::memcpy(vendor + 4, &regs[3], sizeof(int));
+    std::memcpy(vendor + 8, &regs[2], sizeof(int));
+
+    int leaf1[4]{};
+    __cpuid(leaf1, 1);
+    const unsigned int eax = static_cast<unsigned int>(leaf1[0]);
+    const unsigned int stepping = eax & 0x0Fu;
+    const unsigned int model = (eax >> 4) & 0x0Fu;
+    const unsigned int family = (eax >> 8) & 0x0Fu;
+    const unsigned int ext_model = (eax >> 16) & 0x0Fu;
+    const unsigned int ext_family = (eax >> 20) & 0xFFu;
+    const unsigned int display_family = family == 0x0Fu ? family + ext_family : family;
+    const unsigned int display_model =
+        (family == 0x06u || family == 0x0Fu) ? model + (ext_model << 4) : model;
+
+    char text[128]{};
+    std::snprintf(
+        text,
+        sizeof(text),
+        "%s-family%02x-model%03x-stepping%x-eax%08x",
+        vendor,
+        display_family,
+        display_model,
+        stepping,
+        eax);
+    result.value = text;
+    result.ok = true;
+    return result;
+#else
+    SetError(&result, ERROR_NOT_SUPPORTED);
+    return result;
+#endif
+}
+
 UInt64Result CollectMemoryGb() noexcept {
     UInt64Result result;
     MEMORYSTATUSEX status{};
@@ -174,32 +235,54 @@ UInt64Result CollectMemoryGb() noexcept {
         return result;
     }
     result.ok = true;
-    result.value = status.ullTotalPhys / (1024ull * 1024ull * 1024ull);
+    result.value = RoundUpGiB(status.ullTotalPhys);
     return result;
 }
 
 UInt64Result CollectStorageGb() noexcept {
     UInt64Result result;
-    wchar_t windows_dir[MAX_PATH]{};
-    const UINT windows_len = GetWindowsDirectoryW(windows_dir, MAX_PATH);
-    if (windows_len == 0 || windows_len >= MAX_PATH) {
+    DWORD needed = GetLogicalDriveStringsW(0, nullptr);
+    if (needed == 0) {
         result.native_error = GetLastError();
         return result;
     }
 
-    wchar_t volume_root[MAX_PATH]{};
-    if (GetVolumePathNameW(windows_dir, volume_root, MAX_PATH) == FALSE) {
+    std::vector<wchar_t> drives(static_cast<std::size_t>(needed) + 1, L'\0');
+    if (GetLogicalDriveStringsW(needed, drives.data()) == 0) {
         result.native_error = GetLastError();
         return result;
     }
 
-    ULARGE_INTEGER total{};
-    if (GetDiskFreeSpaceExW(volume_root, nullptr, &total, nullptr) == FALSE) {
-        result.native_error = GetLastError();
+    unsigned long long total_bytes = 0;
+    bool found_fixed_drive = false;
+    std::uint32_t first_error = 0;
+    const wchar_t* cursor = drives.data();
+    while (*cursor != L'\0') {
+        const UINT drive_type = GetDriveTypeW(cursor);
+        if (drive_type == DRIVE_FIXED) {
+            ULARGE_INTEGER total{};
+            if (GetDiskFreeSpaceExW(cursor, nullptr, &total, nullptr) != FALSE) {
+                const unsigned long long previous = total_bytes;
+                total_bytes += total.QuadPart;
+                if (total_bytes < previous) {
+                    result.native_error = ERROR_ARITHMETIC_OVERFLOW;
+                    return result;
+                }
+                found_fixed_drive = true;
+            } else if (first_error == 0) {
+                first_error = GetLastError();
+            }
+        }
+        cursor += wcslen(cursor) + 1;
+    }
+
+    if (!found_fixed_drive) {
+        result.native_error = first_error == 0 ? ERROR_NOT_FOUND : first_error;
         return result;
     }
+
     result.ok = true;
-    result.value = total.QuadPart / (1024ull * 1024ull * 1024ull);
+    result.value = RoundUpGiB(total_bytes);
     return result;
 }
 

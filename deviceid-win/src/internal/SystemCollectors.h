@@ -36,6 +36,7 @@ struct DisplayResult {
 StringResult CollectOsVersion() noexcept;
 DisplayResult CollectPrimaryDisplayMode() noexcept;
 StringResult CollectCpuModel() noexcept;
+StringResult CollectCpuid() noexcept;
 UInt32Result CollectCpuCores() noexcept;
 UInt64Result CollectMemoryGb() noexcept;
 UInt64Result CollectStorageGb() noexcept;
